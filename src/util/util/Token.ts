@@ -33,14 +33,16 @@ import path from "path";
 /// 1 - Initial version with HS256
 /// 2 - Switched to ES512
 /// 3 - Add version, device id to token payload
-export const CurrentTokenFormatVersion: number = 3;
+/// 4 - Rename id -> sub for JWT standard compliance
+export const CurrentTokenFormatVersion: number = 4;
 
 export type UserTokenData = {
     user: User;
     session?: Session;
     tokenVersion: number;
     decoded: {
-        id: string;
+        sub: string;
+        id?: string;
         iat: number;
         // token format version
         ver?: number;
@@ -81,14 +83,14 @@ export const checkToken = (
                 return rejectAndLog(reject, 401, "Invalid Token meow " + err);
             }
 
-            // eslint-disable-next-line prefer-const
-            let [user, session] = await Promise.all([
+            const userId = decoded.sub ?? decoded.id!;
+            const [user, session] = await Promise.all([
                 User.findOne({
-                    where: { id: decoded.id },
+                    where: { id: userId },
                     select: [...(opts?.select || []), "id", "bot", "disabled", "deleted", "rights", "data"],
                     relations: opts?.relations,
                 }),
-                decoded.did ? Session.findOne({ where: { session_id: decoded.did, user_id: decoded.id } }) : undefined,
+                decoded.did ? Session.findOne({ where: { session_id: decoded.did, user_id: userId } }) : undefined,
             ]);
 
             if (!user) {
@@ -191,7 +193,7 @@ export async function generateToken(id: string, isAdminSession: boolean = false)
     await newSession.save();
 
     return new Promise((res, rej) => {
-        const payload = { id, iat, kid: keyPair.fingerprint, ver: CurrentTokenFormatVersion, did: newSession.session_id } as UserTokenData["decoded"];
+        const payload = { sub: id, iat, kid: keyPair.fingerprint, ver: CurrentTokenFormatVersion, did: newSession.session_id } as UserTokenData["decoded"];
         jwt.sign(
             payload,
             keyPair.privateKey,
